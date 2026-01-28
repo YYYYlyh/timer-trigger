@@ -21,12 +21,6 @@ import java.util.concurrent.TimeUnit;
 
 @Command(name = "timer-trigger", mixinStandardHelpOptions = true, description = "Timer-triggered HTTP GET runner")
 public class Main implements Runnable {
-    private static final List<String> EPC_LIST = List.of(
-            "E28011B0A502006D6D1E90F7",
-            "E28011B0A502006D6D1EF607",
-            "E28011B0A502006D6D1EF637"
-    );
-
     @Option(names = "--config", description = "Path to YAML config file")
     private String configPath;
 
@@ -36,17 +30,23 @@ public class Main implements Runnable {
     @Option(names = "--run-for", description = "Total runtime duration, e.g. 30m, 2h, 1d")
     private String runFor;
 
-    @Option(names = "--mode", description = "Mode 1-5")
+    @Option(names = "--mode", description = "Mode 1-6")
     private Integer mode;
 
     @Option(names = "--base-url", description = "Base URL")
     private String baseUrl;
+
+    @Option(names = "--epc-list", split = ",", description = "Comma-separated EPC list")
+    private List<String> epcList;
 
     @Option(names = "--device-id", description = "Device ID")
     private Integer deviceId;
 
     @Option(names = "--device-port", description = "Device port")
     private Integer devicePort;
+
+    @Option(names = "--device-port-alt", description = "Alternate device port for mode 6")
+    private Integer devicePortAlt;
 
     @Option(names = "--duration-sec", description = "Duration seconds per request")
     private Integer durationSec;
@@ -99,8 +99,10 @@ public class Main implements Runnable {
         cliConfig.runFor = runFor;
         cliConfig.mode = mode;
         cliConfig.baseUrl = baseUrl;
+        cliConfig.epcList = epcList;
         cliConfig.deviceId = deviceId;
         cliConfig.devicePort = devicePort;
+        cliConfig.devicePortAlt = devicePortAlt;
         cliConfig.durationSec = durationSec;
         cliConfig.qvalue = qvalue;
         cliConfig.rfmode = rfmode;
@@ -127,8 +129,10 @@ public class Main implements Runnable {
         result.runFor = pick(override.runFor, base.runFor);
         result.mode = pick(override.mode, base.mode);
         result.baseUrl = pick(override.baseUrl, base.baseUrl);
+        result.epcList = pick(override.epcList, base.epcList);
         result.deviceId = pick(override.deviceId, base.deviceId);
         result.devicePort = pick(override.devicePort, base.devicePort);
+        result.devicePortAlt = pick(override.devicePortAlt, base.devicePortAlt);
         result.durationSec = pick(override.durationSec, base.durationSec);
         result.qvalue = pick(override.qvalue, base.qvalue);
         result.rfmode = pick(override.rfmode, base.rfmode);
@@ -147,14 +151,30 @@ public class Main implements Runnable {
         if (config.intervalMin == null || config.intervalMin <= 0) {
             throw new ParameterException(new CommandLine(this), "interval-min must be > 0");
         }
-        if (config.mode == null || config.mode < 1 || config.mode > 5) {
-            throw new ParameterException(new CommandLine(this), "mode must be between 1 and 5");
+        if (config.mode == null || config.mode < 1 || config.mode > 6) {
+            throw new ParameterException(new CommandLine(this), "mode must be between 1 and 6");
         }
         if (config.runFor == null) {
             throw new ParameterException(new CommandLine(this), "run-for is required");
         }
         if (config.baseUrl == null || config.baseUrl.isBlank()) {
             throw new ParameterException(new CommandLine(this), "base-url is required");
+        }
+        if (config.epcList == null || config.epcList.isEmpty()) {
+            throw new ParameterException(new CommandLine(this), "epc-list must not be empty");
+        }
+        int epcCount = config.epcList.size();
+        if (config.mode == 1 && epcCount < 1) {
+            throw new ParameterException(new CommandLine(this), "mode 1 requires at least 1 EPC value");
+        }
+        if (config.mode == 2 && epcCount < 2) {
+            throw new ParameterException(new CommandLine(this), "mode 2 requires at least 2 EPC values");
+        }
+        if (config.mode == 3 && epcCount < 3) {
+            throw new ParameterException(new CommandLine(this), "mode 3 requires at least 3 EPC values");
+        }
+        if (config.mode == 6 && epcCount < 3) {
+            throw new ParameterException(new CommandLine(this), "mode 6 requires at least 3 EPC values");
         }
     }
 
@@ -179,18 +199,17 @@ public class Main implements Runnable {
         }, runForDuration.toMillis(), TimeUnit.MILLISECONDS);
 
         Runnable task = new Runnable() {
-            private int rotationIndex = 0;
+            private int tickIndex = 0;
 
             @Override
             public void run() {
                 if (scheduler.isShutdown()) {
                     return;
                 }
-                String epcList = resolveEpcList(config.mode, rotationIndex);
-                if (config.mode == 4) {
-                    rotationIndex = (rotationIndex + 1) % EPC_LIST.size();
-                }
-                String url = buildUrl(config, epcList);
+                int currentPort = resolveDevicePort(config, tickIndex);
+                String epcList = resolveEpcList(config, tickIndex);
+                tickIndex = tickIndex + 1;
+                String url = buildUrl(config, currentPort, epcList);
                 long start = System.nanoTime();
                 try {
                     HttpRequest request = HttpRequest.newBuilder()
@@ -202,13 +221,13 @@ public class Main implements Runnable {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
                     String body = response.body() == null ? "" : response.body();
                     String snippet = body.length() > 200 ? body.substring(0, 200) + "..." : body;
-                    String logMessage = String.format("mode=%d interval=%dmin epcList=%s url=%s status=%d elapsedMs=%d response=%s",
-                            config.mode, config.intervalMin, epcList, url, response.statusCode(), elapsedMs, snippet);
+                    String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s status=%d elapsedMs=%d response=%s",
+                            config.mode, config.intervalMin, currentPort, epcList, url, response.statusCode(), elapsedMs, snippet);
                     logger.info(logMessage);
                 } catch (Exception e) {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-                    String logMessage = String.format("mode=%d interval=%dmin epcList=%s url=%s error=%s elapsedMs=%d",
-                            config.mode, config.intervalMin, epcList, url, e.getMessage(), elapsedMs);
+                    String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s error=%s elapsedMs=%d",
+                            config.mode, config.intervalMin, currentPort, epcList, url, e.getMessage(), elapsedMs);
                     logger.error(logMessage);
                 }
 
@@ -234,23 +253,39 @@ public class Main implements Runnable {
         }
     }
 
-    private String resolveEpcList(int mode, int rotationIndex) {
-        return switch (mode) {
-            case 1 -> EPC_LIST.get(0);
-            case 2 -> EPC_LIST.get(1);
-            case 3 -> EPC_LIST.get(2);
-            case 4 -> EPC_LIST.get(rotationIndex);
-            case 5 -> String.join(",", EPC_LIST);
-            default -> throw new IllegalArgumentException("Unsupported mode: " + mode);
+    private String resolveEpcList(Config config, int tickIndex) {
+        List<String> epcList = config.epcList;
+        return switch (config.mode) {
+            case 1 -> epcList.get(0);
+            case 2 -> epcList.get(1);
+            case 3 -> epcList.get(2);
+            case 4 -> epcList.get(tickIndex % epcList.size());
+            case 5 -> String.join(",", epcList);
+            case 6 -> resolveMode6EpcList(epcList, tickIndex);
+            default -> throw new IllegalArgumentException("Unsupported mode: " + config.mode);
         };
     }
 
-    private String buildUrl(Config config, String epcList) {
+    private String resolveMode6EpcList(List<String> epcList, int tickIndex) {
+        if (tickIndex % 2 == 0) {
+            return String.join(",", epcList.subList(0, 2));
+        }
+        return epcList.get(2);
+    }
+
+    private int resolveDevicePort(Config config, int tickIndex) {
+        if (config.mode == 6) {
+            return tickIndex % 2 == 0 ? config.devicePort : config.devicePortAlt;
+        }
+        return config.devicePort;
+    }
+
+    private String buildUrl(Config config, int devicePort, String epcList) {
         String base = config.baseUrl.endsWith("/") ? config.baseUrl.substring(0, config.baseUrl.length() - 1) : config.baseUrl;
         return String.format("%s/tempsense/start?deviceId=%d&devicePort=%d&epcList=%s&duration=%d&qValue=%d&rfMode=%d",
                 base,
                 config.deviceId,
-                config.devicePort,
+                devicePort,
                 epcList,
                 config.durationSec,
                 config.qvalue,

@@ -14,10 +14,7 @@ public class Config {
 
     public String baseUrl = "http://localhost:9055";
     public Integer deviceId = 1;
-    public Integer devicePort0 = 0;
-    public Integer devicePort1 = 1;
-    public Integer devicePort2 = 2;
-    public Integer devicePort3 = 3;
+    public Integer devicePort = 0;
     public Integer durationSec = 60;
     public Integer qvalue = 0;
     public Integer rfmode = 113;

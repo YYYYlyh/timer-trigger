@@ -8,10 +8,7 @@ epcList:
   - "E28011B0A502006D6D1EF607"
   - "E28011B0A502006D6D1EF637"
 deviceId: 1
-devicePort0: 0
-devicePort1: 1
-devicePort2: 2
-devicePort3: 3
+devicePort: 0
 durationSec: 60
 qvalue: 0
 rfmode: 113

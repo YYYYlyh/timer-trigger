@@ -26,8 +26,7 @@ java -jar target/timer-trigger-1.0.0.jar \
   --base-url http://localhost:9055 \
   --epc-list E28011B0A502006D6D1E90F7,E28011B0A502006D6D1EF607,E28011B0A502006D6D1EF637 \
   --device-id 1 \
-  --device-port0 0 \
-  --device-port1 1 \
+  --device-port 0 \
   --duration-sec 60 \
   --qvalue 0 \
   --rfmode 113
@@ -49,14 +48,11 @@ Windows 可直接双击或执行 `start.bat`。
 
 - `--interval-min`：触发间隔（分钟）。
 - `--run-for`：总运行时长，例如 `30m`、`2h`、`1d`、`30d`。
-- `--mode`：1..7（单签或轮转/合并触发，含双端口轮转和自定义步骤）。
+- `--mode`：1..5、7（单签或轮转/合并触发，支持自定义步骤）。
 - `--base-url`：默认 `http://localhost:9055`。
-- `--epc-list`：英文逗号分隔的 EPC 列表（默认 3 个 EPC，mode 1-6 需要）。
+- `--epc-list`：英文逗号分隔的 EPC 列表（默认 3 个 EPC，mode 1-5 需要）。
 - `--device-id`：默认 `1`。
-- `--device-port0`：默认 `0`。
-- `--device-port1`：默认 `1`。
-- `--device-port2`：默认 `2`。
-- `--device-port3`：默认 `3`。
+- `--device-port`：默认 `0`。
 - `--duration-sec`：默认 `60`。
 - `--qvalue`：默认 `0`。
 - `--rfmode`：默认 `113`。
@@ -89,8 +85,4 @@ EPC 固定值：
 - Mode 3：每 interval 分钟触发一次，使用 EPC 列表第 3 个。
 - Mode 4：每 interval 分钟触发一次，按 EPC 列表顺序轮转（每次只发一个 EPC）。
 - Mode 5：每 interval 分钟触发一次，单次请求携带全部 EPC。
-- Mode 6：每 interval 分钟触发一次，按端口与 EPC 分组轮转：
-  - 第 1 次：`devicePort0` + EPC 列表前两个
-  - 第 2 次：`devicePort1` + EPC 列表第 3 个
-  - 后续按上述顺序循环
 - Mode 7：按 `scheduleSteps` 定义的顺序循环执行，每个 step 里指定 `devicePort` 和 `epcList`，可实现任意组合与顺序。

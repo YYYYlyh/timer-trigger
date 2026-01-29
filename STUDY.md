@@ -3,13 +3,12 @@
 以下描述假设程序通过 `java -jar target/timer-trigger-1.0.0.jar --config config.yaml` 启动。
 
 1. 程序启动后会读取默认配置，然后加载 YAML 配置（若提供），最后应用命令行参数覆盖。
-2. 程序校验参数合法性：`interval-min > 0`、`mode` 在允许范围、`run-for` 可解析；mode 1-6 需要 `epc-list`，mode 7 需要 `scheduleSteps`。
+2. 程序校验参数合法性：`interval-min > 0`、`mode` 在允许范围、`run-for` 可解析；mode 1-5 需要 `epc-list`，mode 7 需要 `scheduleSteps`。
 3. 程序创建单线程 `ScheduledExecutorService`，确保任意时刻只会有一个 HTTP 请求在执行。
 4. 立即触发第一次请求（延迟 0）。根据 `mode` 计算本次使用的 `epcList` 与 `devicePort`：
    - Mode 1/2/3：使用 EPC 列表的第 1/2/3 个。
    - Mode 4：按 EPC 列表顺序轮转（每次只发一个）。
    - Mode 5：每次发送完整 EPC 列表。
-   - Mode 6：偶数 tick 使用 `devicePort0` + EPC 前两个；奇数 tick 使用 `devicePort1` + EPC 第三个。
    - Mode 7：按 `scheduleSteps` 逐条执行，每步指定 `devicePort` 与 `epcList`。
 5. 生成请求 URL：`{baseUrl}/tempsense/start?...`，并发起一次 HTTP GET。
 6. 每次请求结束后输出一条日志（stdout + 按天日志文件），内容包含时间戳、mode、interval、devicePort、epcList、完整 URL、HTTP 状态码、耗时等。
@@ -23,4 +22,4 @@
 # 变更记录
 
 - 2025-09-26：修正可执行 JAR 命名与文档一致（去掉 `-shaded` 后缀），新增 EPC 列表可配置、`devicePortAlt` 与 mode 6 轮转规则，日志中加入 `devicePort`，并扩展 README 中的参数与模式说明。
-- 2025-09-26：统一端口命名为 `devicePort0..3`，新增 mode 7（按 YAML `scheduleSteps` 自定义端口与 EPC 顺序），并更新默认配置与文档说明。
+- 2025-09-26：简化端口为单一 `devicePort`，移除 mode 6，保留 mode 7 用 `scheduleSteps` 进行自定义端口与 EPC 顺序。

@@ -30,7 +30,7 @@ public class Main implements Runnable {
     @Option(names = "--run-for", description = "Total runtime duration, e.g. 30m, 2h, 1d")
     private String runFor;
 
-    @Option(names = "--mode", description = "Mode 1-6")
+    @Option(names = "--mode", description = "Mode 1-7")
     private Integer mode;
 
     @Option(names = "--base-url", description = "Base URL")
@@ -42,11 +42,17 @@ public class Main implements Runnable {
     @Option(names = "--device-id", description = "Device ID")
     private Integer deviceId;
 
-    @Option(names = "--device-port", description = "Device port")
-    private Integer devicePort;
+    @Option(names = "--device-port0", description = "Device port 0 (default)")
+    private Integer devicePort0;
 
-    @Option(names = "--device-port-alt", description = "Alternate device port for mode 6")
-    private Integer devicePortAlt;
+    @Option(names = "--device-port1", description = "Device port 1")
+    private Integer devicePort1;
+
+    @Option(names = "--device-port2", description = "Device port 2")
+    private Integer devicePort2;
+
+    @Option(names = "--device-port3", description = "Device port 3")
+    private Integer devicePort3;
 
     @Option(names = "--duration-sec", description = "Duration seconds per request")
     private Integer durationSec;
@@ -101,8 +107,10 @@ public class Main implements Runnable {
         cliConfig.baseUrl = baseUrl;
         cliConfig.epcList = epcList;
         cliConfig.deviceId = deviceId;
-        cliConfig.devicePort = devicePort;
-        cliConfig.devicePortAlt = devicePortAlt;
+        cliConfig.devicePort0 = devicePort0;
+        cliConfig.devicePort1 = devicePort1;
+        cliConfig.devicePort2 = devicePort2;
+        cliConfig.devicePort3 = devicePort3;
         cliConfig.durationSec = durationSec;
         cliConfig.qvalue = qvalue;
         cliConfig.rfmode = rfmode;
@@ -131,8 +139,10 @@ public class Main implements Runnable {
         result.baseUrl = pick(override.baseUrl, base.baseUrl);
         result.epcList = pick(override.epcList, base.epcList);
         result.deviceId = pick(override.deviceId, base.deviceId);
-        result.devicePort = pick(override.devicePort, base.devicePort);
-        result.devicePortAlt = pick(override.devicePortAlt, base.devicePortAlt);
+        result.devicePort0 = pick(override.devicePort0, base.devicePort0);
+        result.devicePort1 = pick(override.devicePort1, base.devicePort1);
+        result.devicePort2 = pick(override.devicePort2, base.devicePort2);
+        result.devicePort3 = pick(override.devicePort3, base.devicePort3);
         result.durationSec = pick(override.durationSec, base.durationSec);
         result.qvalue = pick(override.qvalue, base.qvalue);
         result.rfmode = pick(override.rfmode, base.rfmode);
@@ -151,8 +161,8 @@ public class Main implements Runnable {
         if (config.intervalMin == null || config.intervalMin <= 0) {
             throw new ParameterException(new CommandLine(this), "interval-min must be > 0");
         }
-        if (config.mode == null || config.mode < 1 || config.mode > 6) {
-            throw new ParameterException(new CommandLine(this), "mode must be between 1 and 6");
+        if (config.mode == null || config.mode < 1 || config.mode > 7) {
+            throw new ParameterException(new CommandLine(this), "mode must be between 1 and 7");
         }
         if (config.runFor == null) {
             throw new ParameterException(new CommandLine(this), "run-for is required");
@@ -160,21 +170,27 @@ public class Main implements Runnable {
         if (config.baseUrl == null || config.baseUrl.isBlank()) {
             throw new ParameterException(new CommandLine(this), "base-url is required");
         }
-        if (config.epcList == null || config.epcList.isEmpty()) {
-            throw new ParameterException(new CommandLine(this), "epc-list must not be empty");
+        if (config.mode != 7) {
+            if (config.epcList == null || config.epcList.isEmpty()) {
+                throw new ParameterException(new CommandLine(this), "epc-list must not be empty");
+            }
+            int epcCount = config.epcList.size();
+            if (config.mode == 1 && epcCount < 1) {
+                throw new ParameterException(new CommandLine(this), "mode 1 requires at least 1 EPC value");
+            }
+            if (config.mode == 2 && epcCount < 2) {
+                throw new ParameterException(new CommandLine(this), "mode 2 requires at least 2 EPC values");
+            }
+            if (config.mode == 3 && epcCount < 3) {
+                throw new ParameterException(new CommandLine(this), "mode 3 requires at least 3 EPC values");
+            }
+            if (config.mode == 6 && epcCount < 3) {
+                throw new ParameterException(new CommandLine(this), "mode 6 requires at least 3 EPC values");
+            }
         }
-        int epcCount = config.epcList.size();
-        if (config.mode == 1 && epcCount < 1) {
-            throw new ParameterException(new CommandLine(this), "mode 1 requires at least 1 EPC value");
-        }
-        if (config.mode == 2 && epcCount < 2) {
-            throw new ParameterException(new CommandLine(this), "mode 2 requires at least 2 EPC values");
-        }
-        if (config.mode == 3 && epcCount < 3) {
-            throw new ParameterException(new CommandLine(this), "mode 3 requires at least 3 EPC values");
-        }
-        if (config.mode == 6 && epcCount < 3) {
-            throw new ParameterException(new CommandLine(this), "mode 6 requires at least 3 EPC values");
+        validatePorts(config);
+        if (config.mode == 7) {
+            validateScheduleSteps(config);
         }
     }
 
@@ -206,10 +222,10 @@ public class Main implements Runnable {
                 if (scheduler.isShutdown()) {
                     return;
                 }
-                int currentPort = resolveDevicePort(config, tickIndex);
-                String epcList = resolveEpcList(config, tickIndex);
+                ScheduleStep step = resolveStep(config, tickIndex);
                 tickIndex = tickIndex + 1;
-                String url = buildUrl(config, currentPort, epcList);
+                String epcList = String.join(",", step.epcList);
+                String url = buildUrl(config, step.devicePort, epcList);
                 long start = System.nanoTime();
                 try {
                     HttpRequest request = HttpRequest.newBuilder()
@@ -222,12 +238,12 @@ public class Main implements Runnable {
                     String body = response.body() == null ? "" : response.body();
                     String snippet = body.length() > 200 ? body.substring(0, 200) + "..." : body;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s status=%d elapsedMs=%d response=%s",
-                            config.mode, config.intervalMin, currentPort, epcList, url, response.statusCode(), elapsedMs, snippet);
+                            config.mode, config.intervalMin, step.devicePort, epcList, url, response.statusCode(), elapsedMs, snippet);
                     logger.info(logMessage);
                 } catch (Exception e) {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s error=%s elapsedMs=%d",
-                            config.mode, config.intervalMin, currentPort, epcList, url, e.getMessage(), elapsedMs);
+                            config.mode, config.intervalMin, step.devicePort, epcList, url, e.getMessage(), elapsedMs);
                     logger.error(logMessage);
                 }
 
@@ -253,31 +269,76 @@ public class Main implements Runnable {
         }
     }
 
-    private String resolveEpcList(Config config, int tickIndex) {
-        List<String> epcList = config.epcList;
+    private ScheduleStep resolveStep(Config config, int tickIndex) {
         return switch (config.mode) {
-            case 1 -> epcList.get(0);
-            case 2 -> epcList.get(1);
-            case 3 -> epcList.get(2);
-            case 4 -> epcList.get(tickIndex % epcList.size());
-            case 5 -> String.join(",", epcList);
-            case 6 -> resolveMode6EpcList(epcList, tickIndex);
+            case 1 -> newStep(config.devicePort0, List.of(config.epcList.get(0)));
+            case 2 -> newStep(config.devicePort0, List.of(config.epcList.get(1)));
+            case 3 -> newStep(config.devicePort0, List.of(config.epcList.get(2)));
+            case 4 -> newStep(config.devicePort0, List.of(config.epcList.get(tickIndex % config.epcList.size())));
+            case 5 -> newStep(config.devicePort0, config.epcList);
+            case 6 -> resolveMode6Step(config, tickIndex);
+            case 7 -> resolveMode7Step(config, tickIndex);
             default -> throw new IllegalArgumentException("Unsupported mode: " + config.mode);
         };
     }
 
-    private String resolveMode6EpcList(List<String> epcList, int tickIndex) {
+    private ScheduleStep resolveMode6Step(Config config, int tickIndex) {
         if (tickIndex % 2 == 0) {
-            return String.join(",", epcList.subList(0, 2));
+            return newStep(config.devicePort0, config.epcList.subList(0, 2));
         }
-        return epcList.get(2);
+        return newStep(config.devicePort1, List.of(config.epcList.get(2)));
     }
 
-    private int resolveDevicePort(Config config, int tickIndex) {
-        if (config.mode == 6) {
-            return tickIndex % 2 == 0 ? config.devicePort : config.devicePortAlt;
+    private ScheduleStep resolveMode7Step(Config config, int tickIndex) {
+        List<ScheduleStep> steps = config.scheduleSteps;
+        int index = tickIndex % steps.size();
+        ScheduleStep source = steps.get(index);
+        return newStep(source.devicePort, source.epcList);
+    }
+
+    private ScheduleStep newStep(Integer devicePort, List<String> epcList) {
+        ScheduleStep step = new ScheduleStep();
+        step.devicePort = devicePort;
+        step.epcList = epcList;
+        return step;
+    }
+
+    private void validateScheduleSteps(Config config) {
+        if (config.scheduleSteps == null || config.scheduleSteps.isEmpty()) {
+            throw new ParameterException(new CommandLine(this), "mode 7 requires scheduleSteps in config");
         }
-        return config.devicePort;
+        for (int i = 0; i < config.scheduleSteps.size(); i++) {
+            ScheduleStep step = config.scheduleSteps.get(i);
+            if (step == null) {
+                throw new ParameterException(new CommandLine(this), "scheduleSteps[" + i + "] is null");
+            }
+            if (step.devicePort == null) {
+                throw new ParameterException(new CommandLine(this), "scheduleSteps[" + i + "].devicePort is required");
+            }
+            validatePortRange(step.devicePort, "scheduleSteps[" + i + "].devicePort");
+            if (step.epcList == null || step.epcList.isEmpty()) {
+                throw new ParameterException(new CommandLine(this), "scheduleSteps[" + i + "].epcList is required");
+            }
+        }
+    }
+
+    private void validatePorts(Config config) {
+        validatePortRange(config.devicePort0, "devicePort0");
+        if (config.devicePort1 != null) {
+            validatePortRange(config.devicePort1, "devicePort1");
+        }
+        if (config.devicePort2 != null) {
+            validatePortRange(config.devicePort2, "devicePort2");
+        }
+        if (config.devicePort3 != null) {
+            validatePortRange(config.devicePort3, "devicePort3");
+        }
+    }
+
+    private void validatePortRange(Integer port, String name) {
+        if (port == null || port < 0 || port > 3) {
+            throw new ParameterException(new CommandLine(this), name + " must be between 0 and 3");
+        }
     }
 
     private String buildUrl(Config config, int devicePort, String epcList) {

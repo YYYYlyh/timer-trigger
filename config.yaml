@@ -1,0 +1,34 @@
+# Timer Trigger configuration
+intervalMin: 10
+runFor: 2h
+mode: 5
+baseUrl: "http://localhost:9055"
+epcList:
+  - "E28011B0A502006D6D1E90F7"
+  - "E28011B0A502006D6D1EF607"
+  - "E28011B0A502006D6D1EF637"
+deviceId: 1
+devicePort0: 0
+devicePort1: 1
+devicePort2: 2
+devicePort3: 3
+durationSec: 60
+qvalue: 0
+rfmode: 113
+connectTimeoutSec: 5
+requestTimeoutSec: 30
+shutdownWait: 30s
+logDir: "logs"
+
+# mode: 7
+# scheduleSteps:
+#   - devicePort: 0
+#     epcList:
+#       - "E28011B0A502006D6D1E90F7"
+#   - devicePort: 1
+#     epcList:
+#       - "E28011B0A502006D6D1EF607"
+#       - "E28011B0A502006D6D1EF637"
+#   - devicePort: 2
+#     epcList:
+#       - "E28011B0A502006D6D1EF999"

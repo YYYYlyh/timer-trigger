@@ -16,8 +16,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Command(name = "timer-trigger", mixinStandardHelpOptions = true, description = "Timer-triggered HTTP GET runner")
 public class Main implements Runnable {
@@ -186,6 +188,8 @@ public class Main implements Runnable {
         Duration shutdownWaitDuration = DurationParser.parse(config.shutdownWait);
         Duration connectTimeout = Duration.ofSeconds(config.connectTimeoutSec);
         Duration requestTimeout = Duration.ofSeconds(config.requestTimeoutSec);
+        Duration intervalDuration = Duration.ofMinutes(config.intervalMin);
+        Duration sleepDetectionThreshold = intervalDuration.plus(Duration.ofSeconds(30));
 
         LogWriter logger = new LogWriter(config.logDir);
         HttpClient client = HttpClient.newBuilder()
@@ -194,21 +198,40 @@ public class Main implements Runnable {
 
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         Instant startTime = Instant.now();
-        Instant endTime = startTime.plus(runForDuration);
+        AtomicReference<Instant> endTimeRef = new AtomicReference<>(startTime.plus(runForDuration));
+        AtomicReference<ScheduledFuture<?>> shutdownFutureRef = new AtomicReference<>();
 
-        scheduler.schedule(() -> {
-            logger.info("Run-for reached, shutting down scheduler.");
-            scheduler.shutdown();
-        }, runForDuration.toMillis(), TimeUnit.MILLISECONDS);
+        shutdownFutureRef.set(scheduleShutdown(scheduler, logger, endTimeRef.get()));
 
         Runnable task = new Runnable() {
             private int tickIndex = 0;
+            private Instant lastRunAt;
 
             @Override
             public void run() {
                 if (scheduler.isShutdown()) {
                     return;
                 }
+                Instant now = Instant.now();
+                if (lastRunAt != null) {
+                    Duration gap = Duration.between(lastRunAt, now);
+                    if (gap.compareTo(sleepDetectionThreshold) > 0) {
+                        Duration missed = gap.minus(intervalDuration);
+                        if (!missed.isNegative() && !missed.isZero()) {
+                            Instant newEndTime = endTimeRef.get().plus(missed);
+                            endTimeRef.set(newEndTime);
+                            ScheduledFuture<?> previous = shutdownFutureRef.getAndSet(
+                                    scheduleShutdown(scheduler, logger, newEndTime)
+                            );
+                            if (previous != null) {
+                                previous.cancel(false);
+                            }
+                            logger.info("Detected sleep gap " + gap.toSeconds() + "s, extending end time by "
+                                    + missed.toSeconds() + "s.");
+                        }
+                    }
+                }
+                lastRunAt = now;
                 ScheduleStep step = resolveStep(config, tickIndex);
                 tickIndex = tickIndex + 1;
                 String epcList = String.join(",", step.epcList);
@@ -234,7 +257,7 @@ public class Main implements Runnable {
                     logger.error(logMessage);
                 }
 
-                if (Instant.now().isAfter(endTime)) {
+                if (Instant.now().isAfter(endTimeRef.get())) {
                     logger.info("Reached end time, shutting down scheduler.");
                     scheduler.shutdown();
                 }
@@ -244,16 +267,34 @@ public class Main implements Runnable {
         scheduler.scheduleWithFixedDelay(task, 0, config.intervalMin, TimeUnit.MINUTES);
 
         try {
-            long waitMillis = runForDuration.plus(shutdownWaitDuration).toMillis();
-            boolean finished = scheduler.awaitTermination(waitMillis, TimeUnit.MILLISECONDS);
-            if (!finished) {
-                logger.error("Scheduler did not shut down in time, forcing shutdown.");
-                scheduler.shutdownNow();
+            while (true) {
+                Instant endTime = endTimeRef.get();
+                Instant latestShutdown = endTime.plus(shutdownWaitDuration);
+                Duration waitDuration = Duration.between(Instant.now(), latestShutdown);
+                long waitMillis = Math.max(waitDuration.toMillis(), 0L);
+                boolean finished = scheduler.awaitTermination(waitMillis, TimeUnit.MILLISECONDS);
+                if (finished) {
+                    break;
+                }
+                if (Instant.now().isAfter(latestShutdown)) {
+                    logger.error("Scheduler did not shut down in time, forcing shutdown.");
+                    scheduler.shutdownNow();
+                    break;
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             scheduler.shutdownNow();
         }
+    }
+
+    private ScheduledFuture<?> scheduleShutdown(ScheduledExecutorService scheduler, LogWriter logger, Instant endTime) {
+        Duration delay = Duration.between(Instant.now(), endTime);
+        long delayMillis = Math.max(delay.toMillis(), 0L);
+        return scheduler.schedule(() -> {
+            logger.info("Run-for reached, shutting down scheduler.");
+            scheduler.shutdown();
+        }, delayMillis, TimeUnit.MILLISECONDS);
     }
 
     private ScheduleStep resolveStep(Config config, int tickIndex) {

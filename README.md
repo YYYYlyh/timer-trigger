@@ -40,7 +40,7 @@ java -jar target/timer-trigger-1.0.0.jar \
 java -jar target/timer-trigger-1.0.0.jar --config config.yaml
 ```
 
-Windows 可直接双击或执行 `start.bat`。
+Windows 可直接双击或执行 `start.bat`。停止可用 `stop.bat`，重启可用 `restart.bat`。
 
 如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 4` 并在 YAML 中按顺序写 `scheduleSteps`。
 

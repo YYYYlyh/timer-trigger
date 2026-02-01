@@ -63,6 +63,7 @@ Windows 可直接双击或执行 `start.bat`。停止可用 `stop.bat`，重启�
 - `--shutdown-wait`：停止等待时长（默认 30s）。
 - `--log-dir`：日志目录（默认 `logs`，按天分文件）。
 - `scheduleSteps`：仅 YAML 使用，`mode=4` 时生效。
+- 休眠续跑：如果电脑休眠导致触发间隔出现长空档，程序会检测并顺延 `run-for` 的结束时间，以便恢复后继续执行。
 
 ## 日志
 

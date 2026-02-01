@@ -22,7 +22,7 @@ target/timer-trigger-1.0.0.jar
 java -jar target/timer-trigger-1.0.0.jar \
   --interval-min 10 \
   --run-for 2h \
-  --mode 5 \
+  --mode 3 \
   --base-url http://localhost:9055 \
   --epc-list E28011B0A502006D6D1E90F7,E28011B0A502006D6D1EF607,E28011B0A502006D6D1EF637 \
   --device-id 1 \
@@ -42,15 +42,17 @@ java -jar target/timer-trigger-1.0.0.jar --config config.yaml
 
 Windows 可直接双击或执行 `start.bat`。
 
-如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 7` 并在 YAML 中按顺序写 `scheduleSteps`。
+如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 4` 并在 YAML 中按顺序写 `scheduleSteps`。
 
 ## 参数说明
 
 - `--interval-min`：触发间隔（分钟）。
 - `--run-for`：总运行时长，例如 `30m`、`2h`、`1d`、`30d`。
-- `--mode`：1..5、7（单签或轮转/合并触发，支持自定义步骤）。
+- `--mode`：1..4（单签、轮转、全量、或自定义步骤）。
 - `--base-url`：默认 `http://localhost:9055`。
-- `--epc-list`：英文逗号分隔的 EPC 列表（默认 3 个 EPC，mode 1-5 需要）。
+- `--epc-list`：英文逗号分隔的 EPC 列表（默认 3 个 EPC，mode 1-3 需要）。
+- `--single-epc`：mode 1 使用的单个 EPC（可直接填写完整 EPC）。
+- `--single-epc-index`：mode 1 使用的 EPC 索引（默认 0，用于从 `epc-list` 取值）。
 - `--device-id`：默认 `1`。
 - `--device-port`：默认 `0`。
 - `--duration-sec`：默认 `60`。
@@ -60,7 +62,7 @@ Windows 可直接双击或执行 `start.bat`。
 - `--request-timeout-sec`：请求超时（默认 30s）。
 - `--shutdown-wait`：停止等待时长（默认 30s）。
 - `--log-dir`：日志目录（默认 `logs`，按天分文件）。
-- `scheduleSteps`：仅 YAML 使用，`mode=7` 时生效。
+- `scheduleSteps`：仅 YAML 使用，`mode=4` 时生效。
 
 ## 日志
 
@@ -80,9 +82,7 @@ EPC 固定值：
 
 ## 模式说明
 
-- Mode 1：每 interval 分钟触发一次，使用 EPC 列表第 1 个。
-- Mode 2：每 interval 分钟触发一次，使用 EPC 列表第 2 个。
-- Mode 3：每 interval 分钟触发一次，使用 EPC 列表第 3 个。
-- Mode 4：每 interval 分钟触发一次，按 EPC 列表顺序轮转（每次只发一个 EPC）。
-- Mode 5：每 interval 分钟触发一次，单次请求携带全部 EPC。
-- Mode 7：按 `scheduleSteps` 定义的顺序循环执行，每个 step 里指定 `devicePort` 和 `epcList`，可实现任意组合与顺序。
+- Mode 1：每 interval 分钟触发一次，使用 `single-epc` 或 `single-epc-index` 指定的 EPC。
+- Mode 2：每 interval 分钟触发一次，按 EPC 列表顺序轮转（每次只发一个 EPC）。
+- Mode 3：每 interval 分钟触发一次，单次请求携带全部 EPC。
+- Mode 4：按 `scheduleSteps` 定义的顺序循环执行，每个 step 里指定 `devicePort` 和 `epcList`，可实现任意组合与顺序。

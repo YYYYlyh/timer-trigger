@@ -10,6 +10,8 @@ public class Config {
             "E28011B0A502006D6D1EF607",
             "E28011B0A502006D6D1EF637"
     );
+    public String singleEpc;
+    public Integer singleEpcIndex = 0;
     public java.util.List<ScheduleStep> scheduleSteps;
 
     public String baseUrl = "http://localhost:9055";

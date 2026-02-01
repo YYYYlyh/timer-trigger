@@ -25,3 +25,4 @@
 - 2025-09-26：简化模式为 1..4：mode 1 使用 `single-epc`/`single-epc-index`，mode 2 轮转，mode 3 全量，mode 4 使用 `scheduleSteps` 自定义顺序。
 - 2025-09-26：新增 JUnit 测试覆盖 duration 解析与模式选择逻辑，并补充测试设计说明。
 - 2025-09-26：新增 stop/restart 批处理脚本，便于在 Windows 环境停止或重启服务。
+- 2025-09-26：简化端口为单一 `devicePort`，移除 mode 6，保留 mode 7 用 `scheduleSteps` 进行自定义端口与 EPC 顺序。

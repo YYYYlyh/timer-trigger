@@ -145,6 +145,7 @@ public class Main implements Runnable {
         result.requestTimeoutSec = pick(override.requestTimeoutSec, base.requestTimeoutSec);
         result.shutdownWait = pick(override.shutdownWait, base.shutdownWait);
         result.logDir = pick(override.logDir, base.logDir);
+        result.scheduleSteps = pick(override.scheduleSteps, base.scheduleSteps);
         return result;
     }
 

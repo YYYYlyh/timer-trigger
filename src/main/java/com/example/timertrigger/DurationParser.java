@@ -7,7 +7,7 @@ public final class DurationParser {
     }
 
     public static Duration parse(String value) {
-        if (value == null || value.isBlank()) {
+        if (value == null || value.trim().isEmpty()) {
             throw new IllegalArgumentException("Duration value is required");
         }
         String trimmed = value.trim().toLowerCase();
@@ -25,12 +25,17 @@ public final class DurationParser {
         if (amount <= 0) {
             throw new IllegalArgumentException("Duration must be positive: " + value);
         }
-        return switch (unit) {
-            case 's' -> Duration.ofSeconds(amount);
-            case 'm' -> Duration.ofMinutes(amount);
-            case 'h' -> Duration.ofHours(amount);
-            case 'd' -> Duration.ofDays(amount);
-            default -> throw new IllegalArgumentException("Invalid duration unit: " + value);
-        };
+        switch (unit) {
+            case 's':
+                return Duration.ofSeconds(amount);
+            case 'm':
+                return Duration.ofMinutes(amount);
+            case 'h':
+                return Duration.ofHours(amount);
+            case 'd':
+                return Duration.ofDays(amount);
+            default:
+                throw new IllegalArgumentException("Invalid duration unit: " + value);
+        }
     }
 }

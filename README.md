@@ -50,6 +50,12 @@ Linux/服务器可使用以下脚本（首次需执行 `chmod +x start.sh stop.s
 ./restart.sh
 ```
 
+如遇到 `/usr/bin/env: 'bash\r': No such file or directory` 或 `invalid option name: pipefail`，说明脚本被保存为 Windows 换行（CRLF），请执行：
+
+```bash
+dos2unix start.sh stop.sh restart.sh
+```
+
 如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 4` 并在 YAML 中按顺序写 `scheduleSteps`。
 
 ## 参数说明

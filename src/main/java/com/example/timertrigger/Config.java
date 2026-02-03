@@ -5,7 +5,7 @@ public class Config {
     public String runFor;
     public Integer mode;
 
-    public java.util.List<String> epcList = java.util.List.of(
+    public java.util.List<String> epcList = java.util.Arrays.asList(
             "E28011B0A502006D6D1E90F7",
             "E28011B0A502006D6D1EF607",
             "E28011B0A502006D6D1EF637"

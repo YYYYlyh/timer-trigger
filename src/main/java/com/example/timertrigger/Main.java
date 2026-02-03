@@ -6,14 +6,15 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.net.URL;
+import java.net.HttpURLConnection;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
@@ -165,7 +166,7 @@ public class Main implements Runnable {
         if (config.runFor == null) {
             throw new ParameterException(new CommandLine(this), "run-for is required");
         }
-        if (config.baseUrl == null || config.baseUrl.isBlank()) {
+        if (config.baseUrl == null || config.baseUrl.trim().isEmpty()) {
             throw new ParameterException(new CommandLine(this), "base-url is required");
         }
         if (config.mode != 4) {
@@ -192,10 +193,6 @@ public class Main implements Runnable {
         Duration sleepDetectionThreshold = intervalDuration.plus(Duration.ofSeconds(30));
 
         LogWriter logger = new LogWriter(config.logDir);
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(connectTimeout)
-                .build();
-
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         Instant startTime = Instant.now();
         AtomicReference<Instant> endTimeRef = new AtomicReference<>(startTime.plus(runForDuration));
@@ -238,17 +235,13 @@ public class Main implements Runnable {
                 String url = buildUrl(config, step.devicePort, epcList);
                 long start = System.nanoTime();
                 try {
-                    HttpRequest request = HttpRequest.newBuilder()
-                            .GET()
-                            .uri(URI.create(url))
-                            .timeout(requestTimeout)
-                            .build();
-                    HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpURLConnection connection = openConnection(url, connectTimeout, requestTimeout);
+                    int statusCode = connection.getResponseCode();
+                    String body = readResponseBody(connection);
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-                    String body = response.body() == null ? "" : response.body();
                     String snippet = body.length() > 200 ? body.substring(0, 200) + "..." : body;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s status=%d elapsedMs=%d response=%s",
-                            config.mode, config.intervalMin, step.devicePort, epcList, url, response.statusCode(), elapsedMs, snippet);
+                            config.mode, config.intervalMin, step.devicePort, epcList, url, statusCode, elapsedMs, snippet);
                     logger.info(logMessage);
                 } catch (Exception e) {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
@@ -298,13 +291,18 @@ public class Main implements Runnable {
     }
 
     private ScheduleStep resolveStep(Config config, int tickIndex) {
-        return switch (config.mode) {
-            case 1 -> newStep(config.devicePort, List.of(resolveSingleEpc(config)));
-            case 2 -> newStep(config.devicePort, List.of(config.epcList.get(tickIndex % config.epcList.size())));
-            case 3 -> newStep(config.devicePort, config.epcList);
-            case 4 -> resolveMode4Step(config, tickIndex);
-            default -> throw new IllegalArgumentException("Unsupported mode: " + config.mode);
-        };
+        switch (config.mode) {
+            case 1:
+                return newStep(config.devicePort, Collections.singletonList(resolveSingleEpc(config)));
+            case 2:
+                return newStep(config.devicePort, Collections.singletonList(config.epcList.get(tickIndex % config.epcList.size())));
+            case 3:
+                return newStep(config.devicePort, config.epcList);
+            case 4:
+                return resolveMode4Step(config, tickIndex);
+            default:
+                throw new IllegalArgumentException("Unsupported mode: " + config.mode);
+        }
     }
 
     private ScheduleStep resolveMode4Step(Config config, int tickIndex) {
@@ -315,7 +313,7 @@ public class Main implements Runnable {
     }
 
     private String resolveSingleEpc(Config config) {
-        if (config.singleEpc != null && !config.singleEpc.isBlank()) {
+        if (config.singleEpc != null && !config.singleEpc.trim().isEmpty()) {
             return config.singleEpc.trim();
         }
         int index = config.singleEpcIndex == null ? 0 : config.singleEpcIndex;
@@ -326,7 +324,7 @@ public class Main implements Runnable {
     }
 
     private void validateMode1(Config config, int epcCount) {
-        if (config.singleEpc != null && !config.singleEpc.isBlank()) {
+        if (config.singleEpc != null && !config.singleEpc.trim().isEmpty()) {
             return;
         }
         if (epcCount < 1) {
@@ -380,5 +378,35 @@ public class Main implements Runnable {
                 config.durationSec,
                 config.qvalue,
                 config.rfmode);
+    }
+
+    private HttpURLConnection openConnection(String url, Duration connectTimeout, Duration requestTimeout) throws IOException {
+        URL target = URI.create(url).toURL();
+        HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(Math.toIntExact(connectTimeout.toMillis()));
+        connection.setReadTimeout(Math.toIntExact(requestTimeout.toMillis()));
+        return connection;
+    }
+
+    private String readResponseBody(HttpURLConnection connection) throws IOException {
+        InputStream inputStream = null;
+        try {
+            inputStream = connection.getResponseCode() >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (inputStream == null) {
+                return "";
+            }
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return outputStream.toString("UTF-8");
+        } finally {
+            if (inputStream != null) {
+                inputStream.close();
+            }
+        }
     }
 }

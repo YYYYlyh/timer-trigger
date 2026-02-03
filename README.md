@@ -14,6 +14,8 @@ mvn -q -DskipTests package
 target/timer-trigger-1.0.0.jar
 ```
 
+运行环境要求：Java 8（JRE/JDK 1.8）。
+
 ## 运行
 
 ### 方式一：命令行参数
@@ -54,6 +56,12 @@ Linux/服务器可使用以下脚本（首次需执行 `chmod +x start.sh stop.s
 
 ```bash
 dos2unix start.sh stop.sh restart.sh
+```
+
+如果服务器没有安装 `dos2unix`，可用 `sed` 替代：
+
+```bash
+sed -i 's/\r$//' start.sh stop.sh restart.sh
 ```
 
 如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 4` 并在 YAML 中按顺序写 `scheduleSteps`。

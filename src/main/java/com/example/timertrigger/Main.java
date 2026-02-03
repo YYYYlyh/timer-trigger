@@ -6,18 +6,21 @@ import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.ParameterException;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.net.URL;
+import java.net.HttpURLConnection;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Command(name = "timer-trigger", mixinStandardHelpOptions = true, description = "Timer-triggered HTTP GET runner")
 public class Main implements Runnable {
@@ -145,6 +148,7 @@ public class Main implements Runnable {
         result.requestTimeoutSec = pick(override.requestTimeoutSec, base.requestTimeoutSec);
         result.shutdownWait = pick(override.shutdownWait, base.shutdownWait);
         result.logDir = pick(override.logDir, base.logDir);
+        result.scheduleSteps = pick(override.scheduleSteps, base.scheduleSteps);
         return result;
     }
 
@@ -162,7 +166,7 @@ public class Main implements Runnable {
         if (config.runFor == null) {
             throw new ParameterException(new CommandLine(this), "run-for is required");
         }
-        if (config.baseUrl == null || config.baseUrl.isBlank()) {
+        if (config.baseUrl == null || config.baseUrl.trim().isEmpty()) {
             throw new ParameterException(new CommandLine(this), "base-url is required");
         }
         if (config.mode != 4) {
@@ -185,46 +189,59 @@ public class Main implements Runnable {
         Duration shutdownWaitDuration = DurationParser.parse(config.shutdownWait);
         Duration connectTimeout = Duration.ofSeconds(config.connectTimeoutSec);
         Duration requestTimeout = Duration.ofSeconds(config.requestTimeoutSec);
+        Duration intervalDuration = Duration.ofMinutes(config.intervalMin);
+        Duration sleepDetectionThreshold = intervalDuration.plus(Duration.ofSeconds(30));
 
         LogWriter logger = new LogWriter(config.logDir);
-        HttpClient client = HttpClient.newBuilder()
-                .connectTimeout(connectTimeout)
-                .build();
-
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         Instant startTime = Instant.now();
-        Instant endTime = startTime.plus(runForDuration);
+        AtomicReference<Instant> endTimeRef = new AtomicReference<>(startTime.plus(runForDuration));
+        AtomicReference<ScheduledFuture<?>> shutdownFutureRef = new AtomicReference<>();
 
-        scheduler.schedule(() -> {
-            logger.info("Run-for reached, shutting down scheduler.");
-            scheduler.shutdown();
-        }, runForDuration.toMillis(), TimeUnit.MILLISECONDS);
+        shutdownFutureRef.set(scheduleShutdown(scheduler, logger, endTimeRef.get()));
 
         Runnable task = new Runnable() {
             private int tickIndex = 0;
+            private Instant lastRunAt;
 
             @Override
             public void run() {
                 if (scheduler.isShutdown()) {
                     return;
                 }
+                Instant now = Instant.now();
+                if (lastRunAt != null) {
+                    Duration gap = Duration.between(lastRunAt, now);
+                    if (gap.compareTo(sleepDetectionThreshold) > 0) {
+                        Duration missed = gap.minus(intervalDuration);
+                        if (!missed.isNegative() && !missed.isZero()) {
+                            Instant newEndTime = endTimeRef.get().plus(missed);
+                            endTimeRef.set(newEndTime);
+                            ScheduledFuture<?> previous = shutdownFutureRef.getAndSet(
+                                    scheduleShutdown(scheduler, logger, newEndTime)
+                            );
+                            if (previous != null) {
+                                previous.cancel(false);
+                            }
+                            logger.info("Detected sleep gap " + gap.toSeconds() + "s, extending end time by "
+                                    + missed.toSeconds() + "s.");
+                        }
+                    }
+                }
+                lastRunAt = now;
                 ScheduleStep step = resolveStep(config, tickIndex);
                 tickIndex = tickIndex + 1;
                 String epcList = String.join(",", step.epcList);
                 String url = buildUrl(config, step.devicePort, epcList);
                 long start = System.nanoTime();
                 try {
-                    HttpRequest request = HttpRequest.newBuilder()
-                            .GET()
-                            .uri(URI.create(url))
-                            .timeout(requestTimeout)
-                            .build();
-                    HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpURLConnection connection = openConnection(url, connectTimeout, requestTimeout);
+                    int statusCode = connection.getResponseCode();
+                    String body = readResponseBody(connection);
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
-                    String body = response.body() == null ? "" : response.body();
                     String snippet = body.length() > 200 ? body.substring(0, 200) + "..." : body;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s status=%d elapsedMs=%d response=%s",
-                            config.mode, config.intervalMin, step.devicePort, epcList, url, response.statusCode(), elapsedMs, snippet);
+                            config.mode, config.intervalMin, step.devicePort, epcList, url, statusCode, elapsedMs, snippet);
                     logger.info(logMessage);
                 } catch (Exception e) {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
@@ -233,7 +250,7 @@ public class Main implements Runnable {
                     logger.error(logMessage);
                 }
 
-                if (Instant.now().isAfter(endTime)) {
+                if (Instant.now().isAfter(endTimeRef.get())) {
                     logger.info("Reached end time, shutting down scheduler.");
                     scheduler.shutdown();
                 }
@@ -243,11 +260,20 @@ public class Main implements Runnable {
         scheduler.scheduleWithFixedDelay(task, 0, config.intervalMin, TimeUnit.MINUTES);
 
         try {
-            long waitMillis = runForDuration.plus(shutdownWaitDuration).toMillis();
-            boolean finished = scheduler.awaitTermination(waitMillis, TimeUnit.MILLISECONDS);
-            if (!finished) {
-                logger.error("Scheduler did not shut down in time, forcing shutdown.");
-                scheduler.shutdownNow();
+            while (true) {
+                Instant endTime = endTimeRef.get();
+                Instant latestShutdown = endTime.plus(shutdownWaitDuration);
+                Duration waitDuration = Duration.between(Instant.now(), latestShutdown);
+                long waitMillis = Math.max(waitDuration.toMillis(), 0L);
+                boolean finished = scheduler.awaitTermination(waitMillis, TimeUnit.MILLISECONDS);
+                if (finished) {
+                    break;
+                }
+                if (Instant.now().isAfter(latestShutdown)) {
+                    logger.error("Scheduler did not shut down in time, forcing shutdown.");
+                    scheduler.shutdownNow();
+                    break;
+                }
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -255,14 +281,28 @@ public class Main implements Runnable {
         }
     }
 
+    private ScheduledFuture<?> scheduleShutdown(ScheduledExecutorService scheduler, LogWriter logger, Instant endTime) {
+        Duration delay = Duration.between(Instant.now(), endTime);
+        long delayMillis = Math.max(delay.toMillis(), 0L);
+        return scheduler.schedule(() -> {
+            logger.info("Run-for reached, shutting down scheduler.");
+            scheduler.shutdown();
+        }, delayMillis, TimeUnit.MILLISECONDS);
+    }
+
     private ScheduleStep resolveStep(Config config, int tickIndex) {
-        return switch (config.mode) {
-            case 1 -> newStep(config.devicePort, List.of(resolveSingleEpc(config)));
-            case 2 -> newStep(config.devicePort, List.of(config.epcList.get(tickIndex % config.epcList.size())));
-            case 3 -> newStep(config.devicePort, config.epcList);
-            case 4 -> resolveMode4Step(config, tickIndex);
-            default -> throw new IllegalArgumentException("Unsupported mode: " + config.mode);
-        };
+        switch (config.mode) {
+            case 1:
+                return newStep(config.devicePort, Collections.singletonList(resolveSingleEpc(config)));
+            case 2:
+                return newStep(config.devicePort, Collections.singletonList(config.epcList.get(tickIndex % config.epcList.size())));
+            case 3:
+                return newStep(config.devicePort, config.epcList);
+            case 4:
+                return resolveMode4Step(config, tickIndex);
+            default:
+                throw new IllegalArgumentException("Unsupported mode: " + config.mode);
+        }
     }
 
     private ScheduleStep resolveMode4Step(Config config, int tickIndex) {
@@ -273,7 +313,7 @@ public class Main implements Runnable {
     }
 
     private String resolveSingleEpc(Config config) {
-        if (config.singleEpc != null && !config.singleEpc.isBlank()) {
+        if (config.singleEpc != null && !config.singleEpc.trim().isEmpty()) {
             return config.singleEpc.trim();
         }
         int index = config.singleEpcIndex == null ? 0 : config.singleEpcIndex;
@@ -284,7 +324,7 @@ public class Main implements Runnable {
     }
 
     private void validateMode1(Config config, int epcCount) {
-        if (config.singleEpc != null && !config.singleEpc.isBlank()) {
+        if (config.singleEpc != null && !config.singleEpc.trim().isEmpty()) {
             return;
         }
         if (epcCount < 1) {
@@ -338,5 +378,35 @@ public class Main implements Runnable {
                 config.durationSec,
                 config.qvalue,
                 config.rfmode);
+    }
+
+    private HttpURLConnection openConnection(String url, Duration connectTimeout, Duration requestTimeout) throws IOException {
+        URL target = URI.create(url).toURL();
+        HttpURLConnection connection = (HttpURLConnection) target.openConnection();
+        connection.setRequestMethod("GET");
+        connection.setConnectTimeout(Math.toIntExact(connectTimeout.toMillis()));
+        connection.setReadTimeout(Math.toIntExact(requestTimeout.toMillis()));
+        return connection;
+    }
+
+    private String readResponseBody(HttpURLConnection connection) throws IOException {
+        InputStream inputStream = null;
+        try {
+            inputStream = connection.getResponseCode() >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (inputStream == null) {
+                return "";
+            }
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, read);
+            }
+            return outputStream.toString("UTF-8");
+        } finally {
+            if (inputStream != null) {
+                inputStream.close();
+            }
+        }
     }
 }

@@ -14,6 +14,8 @@ mvn -q -DskipTests package
 target/timer-trigger-1.0.0.jar
 ```
 
+运行环境要求：Java 8（JRE/JDK 1.8）。
+
 ## 运行
 
 ### 方式一：命令行参数
@@ -42,6 +44,26 @@ java -jar target/timer-trigger-1.0.0.jar --config config.yaml
 
 Windows 可直接双击或执行 `start.bat`。停止可用 `stop.bat`，重启可用 `restart.bat`。
 
+Linux/服务器可使用以下脚本（首次需执行 `chmod +x start.sh stop.sh restart.sh`）：
+
+```bash
+./start.sh
+./stop.sh
+./restart.sh
+```
+
+如遇到 `/usr/bin/env: 'bash\r': No such file or directory` 或 `invalid option name: pipefail`，说明脚本被保存为 Windows 换行（CRLF），请执行：
+
+```bash
+dos2unix start.sh stop.sh restart.sh
+```
+
+如果服务器没有安装 `dos2unix`，可用 `sed` 替代：
+
+```bash
+sed -i 's/\r$//' start.sh stop.sh restart.sh
+```
+
 如需自定义端口与 EPC 的“随机/非固定顺序”组合，可使用 `mode 4` 并在 YAML 中按顺序写 `scheduleSteps`。
 
 ## 参数说明
@@ -63,6 +85,12 @@ Windows 可直接双击或执行 `start.bat`。停止可用 `stop.bat`，重启�
 - `--shutdown-wait`：停止等待时长（默认 30s）。
 - `--log-dir`：日志目录（默认 `logs`，按天分文件）。
 - `scheduleSteps`：仅 YAML 使用，`mode=4` 时生效。
+- 休眠续跑：如果电脑休眠导致触发间隔出现长空档，程序会检测并顺延 `run-for` 的结束时间，以便恢复后继续执行。
+
+## 说明：是否需要重新打包 JAR
+
+- 仅新增/修改启动脚本（`.sh`/`.bat`）时，不需要重新打包 JAR，直接把脚本放在目录里即可使用。
+- 只有在 Java 代码有变更时，才需要执行 `mvn -q -DskipTests package` 重新生成 `target/timer-trigger-1.0.0.jar`。
 
 ## 日志
 

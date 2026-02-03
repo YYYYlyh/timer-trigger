@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.HttpURLConnection;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -122,7 +124,7 @@ public class Main implements Runnable {
 
     private Config loadYaml(String path) {
         Yaml yaml = new Yaml();
-        try (InputStream inputStream = java.nio.file.Files.newInputStream(java.nio.file.Path.of(path))) {
+        try (InputStream inputStream = Files.newInputStream(Paths.get(path))) {
             Config loaded = yaml.loadAs(inputStream, Config.class);
             return loaded == null ? new Config() : loaded;
         } catch (IOException e) {
@@ -223,8 +225,8 @@ public class Main implements Runnable {
                             if (previous != null) {
                                 previous.cancel(false);
                             }
-                            logger.info("Detected sleep gap " + gap.toSeconds() + "s, extending end time by "
-                                    + missed.toSeconds() + "s.");
+                            logger.info("Detected sleep gap " + gap.getSeconds() + "s, extending end time by "
+                                    + missed.getSeconds() + "s.");
                         }
                     }
                 }

@@ -32,8 +32,7 @@ java -jar target/timer-trigger-1.0.0.jar \
   --duration-sec 60 \
   --qvalue 0 \
   --rfmode 113 \
-  --epc-interval-sec 1 \
-  --round-interval-min 10
+  --epc-interval-sec 1
 ```
 
 ### 方式二：YAML 配置文件
@@ -70,7 +69,7 @@ sed -i 's/\r$//' start.sh stop.sh restart.sh
 
 ## 参数说明
 
-- `--interval-min`：触发间隔（分钟），用于 mode 1/3，或在 mode 2/4 作为轮询间隔默认值。
+- `--interval-min`：触发间隔（分钟），用于 mode 1/3，或在 mode 2/4 作为每轮 EPC/step 结束后的间隔。
 - `--run-for`：总运行时长，例如 `30m`、`2h`、`1d`、`30d`。
 - `--mode`：1..4（单签、轮转、全量、或自定义步骤）。
 - `--base-url`：默认 `http://localhost:9055`。
@@ -83,7 +82,6 @@ sed -i 's/\r$//' start.sh stop.sh restart.sh
 - `--qvalue`：默认 `0`。
 - `--rfmode`：默认 `113`。
 - `--epc-interval-sec`：mode 2/4 中同一组内 EPC 的发送间隔（秒）。
-- `--round-interval-min`：mode 2/4 中一组 EPC 发送完后，到下一组的等待时间（分钟）。
 - `--connect-timeout-sec`：连接超时（默认 5s）。
 - `--request-timeout-sec`：请求超时（默认 30s）。
 - `--shutdown-wait`：停止等待时长（默认 30s）。
@@ -115,6 +113,6 @@ EPC 固定值：
 ## 模式说明
 
 - Mode 1：每 interval 分钟触发一次，使用 `single-epc` 或 `single-epc-index` 指定的 EPC。
-- Mode 2：按 EPC 列表顺序轮转（每次只发一个 EPC），组内间隔用 `epc-interval-sec`，全表结束后等待 `round-interval-min` 再开始下一轮。
+- Mode 2：按 EPC 列表顺序轮转（每次只发一个 EPC），组内间隔用 `epc-interval-sec`，全表结束后等待 `interval-min` 再开始下一轮。
 - Mode 3：每 interval 分钟触发一次，单次请求携带全部 EPC。
-- Mode 4：按 `scheduleSteps` 定义的顺序循环执行，每个 step 内 EPC 逐个发送，step 内间隔用 `epc-interval-sec`，step 之间间隔用 `round-interval-min`。
+- Mode 4：按 `scheduleSteps` 定义的顺序循环执行，每个 step 内 EPC 逐个发送，step 内间隔用 `epc-interval-sec`，step 之间间隔用 `interval-min`。

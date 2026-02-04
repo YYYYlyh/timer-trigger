@@ -21,7 +21,6 @@ public class Config {
     public Integer qvalue = 0;
     public Integer rfmode = 113;
     public Integer epcIntervalSec = 1;
-    public Integer roundIntervalMin;
 
     public Integer connectTimeoutSec = 5;
     public Integer requestTimeoutSec = 30;

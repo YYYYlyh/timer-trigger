@@ -68,9 +68,6 @@ public class Main implements Runnable {
     @Option(names = "--epc-interval-sec", description = "Interval seconds between EPC requests in mode 2/4")
     private Integer epcIntervalSec;
 
-    @Option(names = "--round-interval-min", description = "Interval minutes between EPC rounds/steps in mode 2/4")
-    private Integer roundIntervalMin;
-
     @Option(names = "--connect-timeout-sec", description = "HTTP connect timeout seconds")
     private Integer connectTimeoutSec;
 
@@ -122,7 +119,6 @@ public class Main implements Runnable {
         cliConfig.qvalue = qvalue;
         cliConfig.rfmode = rfmode;
         cliConfig.epcIntervalSec = epcIntervalSec;
-        cliConfig.roundIntervalMin = roundIntervalMin;
         cliConfig.connectTimeoutSec = connectTimeoutSec;
         cliConfig.requestTimeoutSec = requestTimeoutSec;
         cliConfig.shutdownWait = shutdownWait;
@@ -155,7 +151,6 @@ public class Main implements Runnable {
         result.qvalue = pick(override.qvalue, base.qvalue);
         result.rfmode = pick(override.rfmode, base.rfmode);
         result.epcIntervalSec = pick(override.epcIntervalSec, base.epcIntervalSec);
-        result.roundIntervalMin = pick(override.roundIntervalMin, base.roundIntervalMin);
         result.connectTimeoutSec = pick(override.connectTimeoutSec, base.connectTimeoutSec);
         result.requestTimeoutSec = pick(override.requestTimeoutSec, base.requestTimeoutSec);
         result.shutdownWait = pick(override.shutdownWait, base.shutdownWait);
@@ -206,7 +201,7 @@ public class Main implements Runnable {
         Duration requestTimeout = Duration.ofSeconds(config.requestTimeoutSec);
         Duration intervalDuration = Duration.ofMinutes(config.intervalMin);
         Duration epcIntervalDuration = Duration.ofSeconds(config.epcIntervalSec);
-        Duration roundIntervalDuration = Duration.ofMinutes(resolveRoundIntervalMin(config));
+        Duration roundIntervalDuration = intervalDuration;
 
         LogWriter logger = new LogWriter(config.logDir);
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -396,14 +391,6 @@ public class Main implements Runnable {
         if (config.epcIntervalSec == null || config.epcIntervalSec <= 0) {
             throw new ParameterException(new CommandLine(this), "epc-interval-sec must be > 0 for mode 2/4");
         }
-        int roundInterval = resolveRoundIntervalMin(config);
-        if (roundInterval <= 0) {
-            throw new ParameterException(new CommandLine(this), "round-interval-min must be > 0 for mode 2/4");
-        }
-    }
-
-    private int resolveRoundIntervalMin(Config config) {
-        return config.roundIntervalMin != null ? config.roundIntervalMin : config.intervalMin;
     }
 
     private String buildUrl(Config config, int devicePort, String epcList) {

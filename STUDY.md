@@ -15,7 +15,7 @@
 7. 若请求异常（超时、连接失败等），记录错误日志并进入下一轮，不终止程序。
 8. 调度采用“单次执行后自行计算下一次延迟”的方式：
    - mode 1/3 使用 `interval-min` 分钟作为固定间隔；
-   - mode 2/4 使用 `epc-interval-sec` 与 `round-interval-min` 组成两级间隔；
+   - mode 2/4 使用 `epc-interval-sec` 与 `interval-min` 组成两级间隔；
    - 保证串行执行，不会并发堆积。
 9. 程序持续运行直到 `run-for` 到期：
    - 到期后先停止调度器接收新任务；
@@ -36,14 +36,14 @@
 现有 `interval-min` 只能控制整体触发频率，对“多 EPC 逐个发送”的场景不够细粒度，因此引入两级间隔配置：
 
 1. **组内间隔（`epc-interval-sec`）**：同一组内每个 EPC 之间的等待时间（秒）。
-2. **组间间隔（`round-interval-min`）**：一组 EPC 发送完毕后，到下一组开始前的等待时间（分钟）。
+2. **组间间隔（`interval-min`）**：一组 EPC 发送完毕后，到下一组开始前的等待时间（分钟）。
 
 对应模式行为：
 
 - **Mode 1**：单个 EPC，仍使用 `interval-min` 作为固定触发周期。
-- **Mode 2**：按 EPC 列表轮询，列表内相邻 EPC 使用 `epc-interval-sec`；列表结束后等待 `round-interval-min` 再开启下一轮。
+- **Mode 2**：按 EPC 列表轮询，列表内相邻 EPC 使用 `epc-interval-sec`；列表结束后等待 `interval-min` 再开启下一轮。
 - **Mode 3**：一次请求携带全部 EPC，仍使用 `interval-min`。
-- **Mode 4**：`scheduleSteps` 中每个 step 视作一组，step 内 EPC 逐个发送，组内间隔用 `epc-interval-sec`，step 与下一个 step 之间等待 `round-interval-min`。
+- **Mode 4**：`scheduleSteps` 中每个 step 视作一组，step 内 EPC 逐个发送，组内间隔用 `epc-interval-sec`，step 与下一个 step 之间等待 `interval-min`。
 
 # 变更记录
 

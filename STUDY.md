@@ -13,11 +13,37 @@
 5. 生成请求 URL：`{baseUrl}/tempsense/start?...`，并发起一次 HTTP GET。
 6. 每次请求结束后输出一条日志（stdout + 按天日志文件），内容包含时间戳、mode、interval、devicePort、epcList、完整 URL、HTTP 状态码、耗时等。
 7. 若请求异常（超时、连接失败等），记录错误日志并进入下一轮，不终止程序。
-8. 调度采用 `scheduleWithFixedDelay`：上一轮请求结束后再等待 `interval-min` 分钟执行下一次，保证串行执行，不会并发堆积。
+8. 调度采用“单次执行后自行计算下一次延迟”的方式：
+   - mode 1/3 使用 `interval-min` 分钟作为固定间隔；
+   - mode 2/4 使用 `epc-interval-sec` 与 `round-interval-min` 组成两级间隔；
+   - 保证串行执行，不会并发堆积。
 9. 程序持续运行直到 `run-for` 到期：
    - 到期后先停止调度器接收新任务；
    - 等待当前请求结束，最多等待 `shutdown-wait`；
    - 正常退出返回码 0。
+
+# Java 17 -> Java 8 兼容修改点（学习记录）
+
+1. `Path.of(...)` 与 `List.of(...)` 是 Java 11/9 之后才提供的工厂方法，Java 8 里不存在：
+   - `Path.of(...)` 改为 `Paths.get(...)`；
+   - `List.of(...)` 改为 `Arrays.asList(...)`。
+   这样可在 Java 8 编译与运行。
+2. `Files.writeString(...)` 是 Java 11 才加入的 API，Java 8 需要用 `Files.write(...)` + `String.getBytes(StandardCharsets.UTF_8)`。
+3. `Duration.toSeconds()` 在 Java 8 的可见性与 Java 17 不一致，统一使用 `Duration.getSeconds()` 读取秒数，避免编译错误。
+
+# 模式间隔的细化（学习记录）
+
+现有 `interval-min` 只能控制整体触发频率，对“多 EPC 逐个发送”的场景不够细粒度，因此引入两级间隔配置：
+
+1. **组内间隔（`epc-interval-sec`）**：同一组内每个 EPC 之间的等待时间（秒）。
+2. **组间间隔（`round-interval-min`）**：一组 EPC 发送完毕后，到下一组开始前的等待时间（分钟）。
+
+对应模式行为：
+
+- **Mode 1**：单个 EPC，仍使用 `interval-min` 作为固定触发周期。
+- **Mode 2**：按 EPC 列表轮询，列表内相邻 EPC 使用 `epc-interval-sec`；列表结束后等待 `round-interval-min` 再开启下一轮。
+- **Mode 3**：一次请求携带全部 EPC，仍使用 `interval-min`。
+- **Mode 4**：`scheduleSteps` 中每个 step 视作一组，step 内 EPC 逐个发送，组内间隔用 `epc-interval-sec`，step 与下一个 step 之间等待 `round-interval-min`。
 
 # 变更记录
 

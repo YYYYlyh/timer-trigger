@@ -35,7 +35,7 @@
 
 现有 `interval-min` 只能控制整体触发频率，对“多 EPC 逐个发送”的场景不够细粒度，因此引入两级间隔配置：
 
-1. **组内间隔（`epc-interval-sec`）**：同一组内每个 EPC 之间的等待时间（秒）。
+1. **组内间隔（`epc-interval-sec`）**：mode 2 为同一组内每个 EPC 之间的等待时间（秒），mode 4 为相邻 step 之间的等待时间（秒）。
 2. **组间间隔（`interval-min`）**：一组 EPC 发送完毕后，到下一组开始前的等待时间（分钟）。
 
 对应模式行为：
@@ -43,7 +43,7 @@
 - **Mode 1**：单个 EPC，仍使用 `interval-min` 作为固定触发周期。
 - **Mode 2**：按 EPC 列表轮询，列表内相邻 EPC 使用 `epc-interval-sec`；列表结束后等待 `interval-min` 再开启下一轮。
 - **Mode 3**：一次请求携带全部 EPC，仍使用 `interval-min`。
-- **Mode 4**：`scheduleSteps` 中每个 step 视作一组，step 内 EPC 逐个发送，组内间隔用 `epc-interval-sec`，step 与下一个 step 之间等待 `interval-min`。
+- **Mode 4**：`scheduleSteps` 中所有 step 视作一组，step 之间间隔用 `epc-interval-sec`，整组完成后等待 `interval-min` 再开始下一轮。
 
 # 变更记录
 

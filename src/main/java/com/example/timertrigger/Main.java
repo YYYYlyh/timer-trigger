@@ -438,7 +438,6 @@ public class Main implements Runnable {
     private static class ModeCursor {
         private int mode2Index;
         private int mode4StepIndex;
-        private int mode4EpcIndex;
     }
 
     private static class ScheduleExecution {
@@ -481,16 +480,14 @@ public class Main implements Runnable {
 
     private ScheduleExecution nextMode4Execution(Config config, ModeCursor cursor) {
         List<ScheduleStep> steps = config.scheduleSteps;
-        ScheduleStep step = steps.get(cursor.mode4StepIndex);
-        int epcIndex = cursor.mode4EpcIndex;
-        String epc = step.epcList.get(epcIndex);
-        cursor.mode4EpcIndex = epcIndex + 1;
-        boolean endOfGroup = cursor.mode4EpcIndex >= step.epcList.size();
+        int stepIndex = cursor.mode4StepIndex % steps.size();
+        ScheduleStep step = steps.get(stepIndex);
+        cursor.mode4StepIndex = stepIndex + 1;
+        boolean endOfGroup = cursor.mode4StepIndex >= steps.size();
         if (endOfGroup) {
-            cursor.mode4EpcIndex = 0;
-            cursor.mode4StepIndex = (cursor.mode4StepIndex + 1) % steps.size();
+            cursor.mode4StepIndex = 0;
         }
-        return new ScheduleExecution(step.devicePort, Collections.singletonList(epc), endOfGroup);
+        return new ScheduleExecution(step.devicePort, step.epcList, endOfGroup);
     }
 
     private Duration computeNextDelay(Config config,

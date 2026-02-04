@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
 import java.net.HttpURLConnection;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
@@ -63,6 +65,12 @@ public class Main implements Runnable {
     @Option(names = "--rfmode", description = "RF mode")
     private Integer rfmode;
 
+    @Option(names = "--epc-interval-sec", description = "Interval seconds between EPC requests in mode 2/4")
+    private Integer epcIntervalSec;
+
+    @Option(names = "--round-interval-min", description = "Interval minutes between EPC rounds/steps in mode 2/4")
+    private Integer roundIntervalMin;
+
     @Option(names = "--connect-timeout-sec", description = "HTTP connect timeout seconds")
     private Integer connectTimeoutSec;
 
@@ -113,6 +121,8 @@ public class Main implements Runnable {
         cliConfig.durationSec = durationSec;
         cliConfig.qvalue = qvalue;
         cliConfig.rfmode = rfmode;
+        cliConfig.epcIntervalSec = epcIntervalSec;
+        cliConfig.roundIntervalMin = roundIntervalMin;
         cliConfig.connectTimeoutSec = connectTimeoutSec;
         cliConfig.requestTimeoutSec = requestTimeoutSec;
         cliConfig.shutdownWait = shutdownWait;
@@ -122,7 +132,7 @@ public class Main implements Runnable {
 
     private Config loadYaml(String path) {
         Yaml yaml = new Yaml();
-        try (InputStream inputStream = java.nio.file.Files.newInputStream(java.nio.file.Path.of(path))) {
+        try (InputStream inputStream = Files.newInputStream(Paths.get(path))) {
             Config loaded = yaml.loadAs(inputStream, Config.class);
             return loaded == null ? new Config() : loaded;
         } catch (IOException e) {
@@ -144,6 +154,8 @@ public class Main implements Runnable {
         result.durationSec = pick(override.durationSec, base.durationSec);
         result.qvalue = pick(override.qvalue, base.qvalue);
         result.rfmode = pick(override.rfmode, base.rfmode);
+        result.epcIntervalSec = pick(override.epcIntervalSec, base.epcIntervalSec);
+        result.roundIntervalMin = pick(override.roundIntervalMin, base.roundIntervalMin);
         result.connectTimeoutSec = pick(override.connectTimeoutSec, base.connectTimeoutSec);
         result.requestTimeoutSec = pick(override.requestTimeoutSec, base.requestTimeoutSec);
         result.shutdownWait = pick(override.shutdownWait, base.shutdownWait);
@@ -182,6 +194,9 @@ public class Main implements Runnable {
         if (config.mode == 4) {
             validateScheduleSteps(config);
         }
+        if (config.mode == 2 || config.mode == 4) {
+            validateEpcIntervals(config);
+        }
     }
 
     private void runScheduler(Config config) {
@@ -190,18 +205,20 @@ public class Main implements Runnable {
         Duration connectTimeout = Duration.ofSeconds(config.connectTimeoutSec);
         Duration requestTimeout = Duration.ofSeconds(config.requestTimeoutSec);
         Duration intervalDuration = Duration.ofMinutes(config.intervalMin);
-        Duration sleepDetectionThreshold = intervalDuration.plus(Duration.ofSeconds(30));
+        Duration epcIntervalDuration = Duration.ofSeconds(config.epcIntervalSec);
+        Duration roundIntervalDuration = Duration.ofMinutes(resolveRoundIntervalMin(config));
 
         LogWriter logger = new LogWriter(config.logDir);
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         Instant startTime = Instant.now();
         AtomicReference<Instant> endTimeRef = new AtomicReference<>(startTime.plus(runForDuration));
         AtomicReference<ScheduledFuture<?>> shutdownFutureRef = new AtomicReference<>();
+        AtomicReference<Duration> expectedGapRef = new AtomicReference<>(intervalDuration);
 
         shutdownFutureRef.set(scheduleShutdown(scheduler, logger, endTimeRef.get()));
 
         Runnable task = new Runnable() {
-            private int tickIndex = 0;
+            private final ModeCursor cursor = new ModeCursor();
             private Instant lastRunAt;
 
             @Override
@@ -212,8 +229,10 @@ public class Main implements Runnable {
                 Instant now = Instant.now();
                 if (lastRunAt != null) {
                     Duration gap = Duration.between(lastRunAt, now);
+                    Duration expectedGap = expectedGapRef.get();
+                    Duration sleepDetectionThreshold = expectedGap.plus(Duration.ofSeconds(30));
                     if (gap.compareTo(sleepDetectionThreshold) > 0) {
-                        Duration missed = gap.minus(intervalDuration);
+                        Duration missed = gap.minus(expectedGap);
                         if (!missed.isNegative() && !missed.isZero()) {
                             Instant newEndTime = endTimeRef.get().plus(missed);
                             endTimeRef.set(newEndTime);
@@ -223,16 +242,15 @@ public class Main implements Runnable {
                             if (previous != null) {
                                 previous.cancel(false);
                             }
-                            logger.info("Detected sleep gap " + gap.toSeconds() + "s, extending end time by "
-                                    + missed.toSeconds() + "s.");
+                            logger.info("Detected sleep gap " + gap.getSeconds() + "s, extending end time by "
+                                    + missed.getSeconds() + "s.");
                         }
                     }
                 }
                 lastRunAt = now;
-                ScheduleStep step = resolveStep(config, tickIndex);
-                tickIndex = tickIndex + 1;
-                String epcList = String.join(",", step.epcList);
-                String url = buildUrl(config, step.devicePort, epcList);
+                ScheduleExecution execution = nextExecution(config, cursor);
+                String epcList = String.join(",", execution.epcList);
+                String url = buildUrl(config, execution.devicePort, epcList);
                 long start = System.nanoTime();
                 try {
                     HttpURLConnection connection = openConnection(url, connectTimeout, requestTimeout);
@@ -241,23 +259,29 @@ public class Main implements Runnable {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
                     String snippet = body.length() > 200 ? body.substring(0, 200) + "..." : body;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s status=%d elapsedMs=%d response=%s",
-                            config.mode, config.intervalMin, step.devicePort, epcList, url, statusCode, elapsedMs, snippet);
+                            config.mode, config.intervalMin, execution.devicePort, epcList, url, statusCode, elapsedMs, snippet);
                     logger.info(logMessage);
                 } catch (Exception e) {
                     long elapsedMs = (System.nanoTime() - start) / 1_000_000;
                     String logMessage = String.format("mode=%d interval=%dmin devicePort=%d epcList=%s url=%s error=%s elapsedMs=%d",
-                            config.mode, config.intervalMin, step.devicePort, epcList, url, e.getMessage(), elapsedMs);
+                            config.mode, config.intervalMin, execution.devicePort, epcList, url, e.getMessage(), elapsedMs);
                     logger.error(logMessage);
                 }
 
                 if (Instant.now().isAfter(endTimeRef.get())) {
                     logger.info("Reached end time, shutting down scheduler.");
                     scheduler.shutdown();
+                    return;
                 }
+
+                Duration nextDelay = computeNextDelay(config, execution, intervalDuration, epcIntervalDuration, roundIntervalDuration);
+                expectedGapRef.set(nextDelay);
+                scheduler.schedule(this, nextDelay.toMillis(), TimeUnit.MILLISECONDS);
             }
         };
 
-        scheduler.scheduleWithFixedDelay(task, 0, config.intervalMin, TimeUnit.MINUTES);
+        expectedGapRef.set(Duration.ZERO);
+        scheduler.schedule(task, 0, TimeUnit.MILLISECONDS);
 
         try {
             while (true) {
@@ -368,6 +392,20 @@ public class Main implements Runnable {
         }
     }
 
+    private void validateEpcIntervals(Config config) {
+        if (config.epcIntervalSec == null || config.epcIntervalSec <= 0) {
+            throw new ParameterException(new CommandLine(this), "epc-interval-sec must be > 0 for mode 2/4");
+        }
+        int roundInterval = resolveRoundIntervalMin(config);
+        if (roundInterval <= 0) {
+            throw new ParameterException(new CommandLine(this), "round-interval-min must be > 0 for mode 2/4");
+        }
+    }
+
+    private int resolveRoundIntervalMin(Config config) {
+        return config.roundIntervalMin != null ? config.roundIntervalMin : config.intervalMin;
+    }
+
     private String buildUrl(Config config, int devicePort, String epcList) {
         String base = config.baseUrl.endsWith("/") ? config.baseUrl.substring(0, config.baseUrl.length() - 1) : config.baseUrl;
         return String.format("%s/tempsense/start?deviceId=%d&devicePort=%d&epcList=%s&duration=%d&qValue=%d&rfMode=%d",
@@ -408,5 +446,74 @@ public class Main implements Runnable {
                 inputStream.close();
             }
         }
+    }
+
+    private static class ModeCursor {
+        private int mode2Index;
+        private int mode4StepIndex;
+        private int mode4EpcIndex;
+    }
+
+    private static class ScheduleExecution {
+        private final int devicePort;
+        private final List<String> epcList;
+        private final boolean endOfGroup;
+
+        private ScheduleExecution(int devicePort, List<String> epcList, boolean endOfGroup) {
+            this.devicePort = devicePort;
+            this.epcList = epcList;
+            this.endOfGroup = endOfGroup;
+        }
+    }
+
+    private ScheduleExecution nextExecution(Config config, ModeCursor cursor) {
+        switch (config.mode) {
+            case 1:
+                return new ScheduleExecution(config.devicePort, Collections.singletonList(resolveSingleEpc(config)), true);
+            case 2:
+                return nextMode2Execution(config, cursor);
+            case 3:
+                return new ScheduleExecution(config.devicePort, config.epcList, true);
+            case 4:
+                return nextMode4Execution(config, cursor);
+            default:
+                throw new IllegalArgumentException("Unsupported mode: " + config.mode);
+        }
+    }
+
+    private ScheduleExecution nextMode2Execution(Config config, ModeCursor cursor) {
+        int index = cursor.mode2Index % config.epcList.size();
+        String epc = config.epcList.get(index);
+        cursor.mode2Index = index + 1;
+        boolean endOfGroup = cursor.mode2Index >= config.epcList.size();
+        if (endOfGroup) {
+            cursor.mode2Index = 0;
+        }
+        return new ScheduleExecution(config.devicePort, Collections.singletonList(epc), endOfGroup);
+    }
+
+    private ScheduleExecution nextMode4Execution(Config config, ModeCursor cursor) {
+        List<ScheduleStep> steps = config.scheduleSteps;
+        ScheduleStep step = steps.get(cursor.mode4StepIndex);
+        int epcIndex = cursor.mode4EpcIndex;
+        String epc = step.epcList.get(epcIndex);
+        cursor.mode4EpcIndex = epcIndex + 1;
+        boolean endOfGroup = cursor.mode4EpcIndex >= step.epcList.size();
+        if (endOfGroup) {
+            cursor.mode4EpcIndex = 0;
+            cursor.mode4StepIndex = (cursor.mode4StepIndex + 1) % steps.size();
+        }
+        return new ScheduleExecution(step.devicePort, Collections.singletonList(epc), endOfGroup);
+    }
+
+    private Duration computeNextDelay(Config config,
+                                      ScheduleExecution execution,
+                                      Duration intervalDuration,
+                                      Duration epcIntervalDuration,
+                                      Duration roundIntervalDuration) {
+        if (config.mode == 2 || config.mode == 4) {
+            return execution.endOfGroup ? roundIntervalDuration : epcIntervalDuration;
+        }
+        return intervalDuration;
     }
 }

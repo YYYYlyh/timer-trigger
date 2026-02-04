@@ -3,6 +3,7 @@ package com.example.timertrigger;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -15,14 +16,14 @@ class MainModeLogicTest {
         config.mode = 1;
         config.singleEpc = "EPC-ONLY";
         config.devicePort = 0;
-        config.epcList = List.of("A", "B");
+        config.epcList = Arrays.asList("A", "B");
 
         Main main = new Main();
         Method resolveStep = Main.class.getDeclaredMethod("resolveStep", Config.class, int.class);
         resolveStep.setAccessible(true);
         ScheduleStep step = (ScheduleStep) resolveStep.invoke(main, config, 0);
 
-        assertEquals(List.of("EPC-ONLY"), step.epcList);
+        assertEquals(Arrays.asList("EPC-ONLY"), step.epcList);
     }
 
     @Test
@@ -31,14 +32,14 @@ class MainModeLogicTest {
         config.mode = 1;
         config.singleEpcIndex = 1;
         config.devicePort = 0;
-        config.epcList = List.of("EPC-A", "EPC-B");
+        config.epcList = Arrays.asList("EPC-A", "EPC-B");
 
         Main main = new Main();
         Method resolveStep = Main.class.getDeclaredMethod("resolveStep", Config.class, int.class);
         resolveStep.setAccessible(true);
         ScheduleStep step = (ScheduleStep) resolveStep.invoke(main, config, 0);
 
-        assertEquals(List.of("EPC-B"), step.epcList);
+        assertEquals(Arrays.asList("EPC-B"), step.epcList);
     }
 
     @Test
@@ -46,7 +47,7 @@ class MainModeLogicTest {
         Config config = new Config();
         config.mode = 2;
         config.devicePort = 0;
-        config.epcList = List.of("EPC-1", "EPC-2", "EPC-3");
+        config.epcList = Arrays.asList("EPC-1", "EPC-2", "EPC-3");
 
         Main main = new Main();
         Method resolveStep = Main.class.getDeclaredMethod("resolveStep", Config.class, int.class);
@@ -56,9 +57,9 @@ class MainModeLogicTest {
         ScheduleStep step1 = (ScheduleStep) resolveStep.invoke(main, config, 1);
         ScheduleStep step2 = (ScheduleStep) resolveStep.invoke(main, config, 2);
 
-        assertEquals(List.of("EPC-1"), step0.epcList);
-        assertEquals(List.of("EPC-2"), step1.epcList);
-        assertEquals(List.of("EPC-3"), step2.epcList);
+        assertEquals(Arrays.asList("EPC-1"), step0.epcList);
+        assertEquals(Arrays.asList("EPC-2"), step1.epcList);
+        assertEquals(Arrays.asList("EPC-3"), step2.epcList);
     }
 
     @Test
@@ -66,14 +67,14 @@ class MainModeLogicTest {
         Config config = new Config();
         config.mode = 3;
         config.devicePort = 0;
-        config.epcList = List.of("EPC-1", "EPC-2");
+        config.epcList = Arrays.asList("EPC-1", "EPC-2");
 
         Main main = new Main();
         Method resolveStep = Main.class.getDeclaredMethod("resolveStep", Config.class, int.class);
         resolveStep.setAccessible(true);
 
         ScheduleStep step = (ScheduleStep) resolveStep.invoke(main, config, 0);
-        assertEquals(List.of("EPC-1", "EPC-2"), step.epcList);
+        assertEquals(Arrays.asList("EPC-1", "EPC-2"), step.epcList);
     }
 
     @Test

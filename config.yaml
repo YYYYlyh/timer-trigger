@@ -1,5 +1,6 @@
 # Timer Trigger configuration
 intervalMin: 10
+epcIntervalSec: 1
 runFor: 2h
 mode: 3
 baseUrl: "http://localhost:9055"

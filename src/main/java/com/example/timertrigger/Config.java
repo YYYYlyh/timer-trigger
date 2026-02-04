@@ -20,6 +20,7 @@ public class Config {
     public Integer durationSec = 60;
     public Integer qvalue = 0;
     public Integer rfmode = 113;
+    public Integer epcIntervalSec = 1;
 
     public Integer connectTimeoutSec = 5;
     public Integer requestTimeoutSec = 30;

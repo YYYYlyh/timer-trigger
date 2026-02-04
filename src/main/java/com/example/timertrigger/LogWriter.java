@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -18,7 +19,7 @@ public class LogWriter {
     private Path currentFile;
 
     public LogWriter(String logDir) {
-        this.logDir = Path.of(logDir);
+        this.logDir = Paths.get(logDir);
     }
 
     public synchronized void info(String message) {
@@ -35,7 +36,7 @@ public class LogWriter {
         System.out.println(line);
         try {
             ensureFile();
-            Files.writeString(currentFile, line + System.lineSeparator(), StandardCharsets.UTF_8,
+            Files.write(currentFile, (line + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE, StandardOpenOption.WRITE, StandardOpenOption.APPEND);
         } catch (IOException e) {
             System.out.println(timestamp + " [ERROR] Failed to write log file: " + e.getMessage());
